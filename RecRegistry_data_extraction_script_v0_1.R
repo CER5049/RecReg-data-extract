@@ -33,8 +33,6 @@ library(dplyr)
 library(tidyr)
 # library(tidyverse)
 library(lubridate) #needed for manipulation of date and times
-library(reshape2) # Needed for dcast()
-library(readxl)
 library(RODBC)
 library(gtools) # Needed for permutations
 library(odbc) # needed for Odbc
@@ -45,7 +43,6 @@ library(odbc) # needed for Odbc
 ####################
 
 conRECREG <- dbConnect(odbc::odbc(), "RecRegistry", timeout = 10)
-conInspPortal <- dbConnect(odbc::odbc(), "IP", timeout = 10)
 
 
 ###############
@@ -59,9 +56,9 @@ DevOpsNum <- "Work Item 35079" # Used in log file, and relates to the Feature/PB
 start_time <- Sys.time()
 
 # Range for "installation dates" whose records are extracted
-DateStart <- as.Date("2021-07-01") # example 2019-10-21
+DateStart <- as.Date("2016-01-01") # example 2019-10-21
 SQLDateStart <- gsub("-","",DateStart) # Used in SQL script
-DateEnd <- as.Date("2021-09-30") # example 2019-10-21
+DateEnd <- as.Date("2021-10-06") # example 2019-10-21
 SQLDateEnd <- gsub("-","",DateEnd) # Used in SQL script
 
 ###############
@@ -88,11 +85,10 @@ SQLDateEnd <- gsub("-","",DateEnd) # Used in SQL script
 # SQL script as input string to an R function, which extracts the required data.
 # Un/comment the required fields, as needed.
 # Ensure the last uncommented data field before FROM has no comma at end of line.
-SRES_Raw_SQL <- paste0("SELECT 
+RecReg_Raw_SQL <- paste0("SELECT 
       sgu.ACCREDITATION_CODE as Small_Unit_Accreditation_Code,
       sgu.ID, -- Needed for Serial Numbers matching below
-      sgu.FUEL_SOURCE, 
-      
+     
       --Installation Address
       sgu_addr.POSTCODE as Small_Unit_Installation_Postcode,
       sgu_addr.STATE as Small_Unit_Installation_State,
@@ -113,7 +109,7 @@ SRES_Raw_SQL <- paste0("SELECT
       --Account
       acct.[Name] as Account_Name,
       vacct.[RPE_ID] as Registered_Person_ID,
-      
+      sgu.FUEL_SOURCE, 
       
       -- --Installer details
       installer.INSTALLER_ACCREDITED_NUMBER as Small_Unit_Installer_CEC_Accreditation_Code,
@@ -143,6 +139,7 @@ SRES_Raw_SQL <- paste0("SELECT
       designer.PHONE as Small_Unit_Designer_Phone_Number,
       designer.FAX as Small_Unit_Designer_Fax_Number,
       designer.EMAIL as Small_Unit_Designer_Email_Address,
+      
       designer_address.POSTCODE as SGU_Designer_Postcode,
       designer_address.STATE as SGU_Designer_State,
       designer_address.SUBURB as SGU_Designer_City,
@@ -179,6 +176,8 @@ SRES_Raw_SQL <- paste0("SELECT
       --Small Unit Owner
       owner.[Small Unit Owner Surname] as Small_Unit_Owner_Surname,
       owner.[Small Unit Owner Firstname] as Small_Unit_Owner_Firstname,
+      --owner.[Small Unit Owner Initials] as Small_Unit_Owner_Initials,
+      --owner.[Small Unit Owner Title] as Small_Unit_Owner_Title,
       owner.[Small Unit Owner Mobile Number] as Small_Unit_Owner_Mobile_Number,
       owner.[Small Unit Owner Phone Number] as Small_Unit_Owner_Phone_Number,
       owner.[Small Unit Owner Fax Number] as Small_Unit_Owner_Fax_Number,
@@ -193,8 +192,11 @@ SRES_Raw_SQL <- paste0("SELECT
       owner.[Small Unit Owner Street Number] as Small_Unit_Owner_Street_Number,
       owner.[Small Unit Owner Street Name] as Small_Unit_Owner_Street_Name,
       owner.[Small Unit Owner Street Type] as Small_Unit_Owner_Street_Type,
-      
+     
       ----- Facts -----
+     
+      --validation audit status
+      vas.Any_RECs_Passed_Validation_Audit_Flag as Any_RECs_Passed_Validation_Audit_Flag,
      
       --RECs
       fsur.[RECs Created Quantity] as RECs_Created_Quantity,
@@ -209,15 +211,13 @@ SRES_Raw_SQL <- paste0("SELECT
       dsur.[Small Unit Customer Reference] as Small_Unit_Customer_Reference,
       
       --SGU facts
-      fsur.[SGU Rated Output in kW] as SGU_Rated_Output_in_kW,
       dsur.[RECs Multiplier Used] as RECs_Multiplier_Used,
+      fsur.[SGU Rated Output in kW] as SGU_Rated_Output_in_kW,
       dsur.[SGU Brand] as SGU_Brand,
       dsur.[SGU Model] as SGU_Model,
-      dsur.[SGU Rebate Approved Flag] as SGU_Rebate_Approved_Flag,
-      fsur.[SGU Out of Pocket Expense] as SGU_Out_of_Pocket_Expense,
-     
+      
       --SGU statements etc
-      dsur.[SGU Installation Type] as SGU_Installation_Type,
+      --dsur.[SGU Installation Type] as SGU_Installation_Type,
       dsur.[SGU Inverter Manufacturer] as SGU_Inverter_Manufacturer,
       dsur.[SGU Inverter Series] as SGU_Inverter_Series,
       dsur.[SGU Inverter Model Number] as SGU_Inverter_Model_Number,
@@ -239,13 +239,17 @@ SRES_Raw_SQL <- paste0("SELECT
       dsur.[SGU Availability] as SGU_Availability,
       dsur.[More than One SGU at Address Flag] as More_than_One_SGU_at_Address_Flag,
       sgu.MORE_THAN_ONE_SGU_SAME_ADDRESS,
-      sgu.HAS_FAILED_PREVIOUSLY,
+      --sgu.HAS_FAILED_PREVIOUSLY,
       sgu.INSTALLATION_TYPE,
       sgu.RECREATION_EXPLANATION_NOTE,
       sgu.ADDITIONAL_CAPACITY_DETAILS,
       sgu.VERSION,
       sgu.ADDITIONAL_SYSTEM_INFORMATION,
-      sgu.PREVIOUS_RECS_MULTIPLIER_FLAG,
+      --sgu.PREVIOUS_RECS_MULTIPLIER_FLAG,
+      
+      dsur.[SGU Rebate Approved Flag] as SGU_Rebate_Approved_Flag,
+      fsur.[SGU Out of Pocket Expense] as SGU_Out_of_Pocket_Expense,
+      
       dsur.[SWH Brand] as SWH_Brand,
       dsur.[SWH Model] as SWH_Model,
       dsur.[SWH Installation Type] as SWH_Installation_Type,
@@ -257,12 +261,12 @@ SRES_Raw_SQL <- paste0("SELECT
       dsur.[More than One SWH at Address Flag] as More_than_One_SWH_at_Address_Flag,
       dsur.[RETAILER NAME] as RETAILER_NAME,
       dsur.[RETAILER ABN] as RETAILER_ABN,
-      dsur.[NATIONAL METERING NUMBER] as NATIONAL_METERING_NUMBER,
-      dsur.[BATTERY MANUFACTURER] as BATTERY_MANUFACTURER,
-      dsur.[BATTERY MODEL] as BATTERY_MODEL,
-      dsur.[BATTERY PART OF AGG CONTROL] as BATTERY_PART_OF_AGG_CONTROL,
-      dsur.[BATTERY SETTINGS CHANGED] as BATTERY_SETTINGS_CHANGED,
-      dsur.[SGU ELECTRICITY GRID CONNECTIVITY] as SGU_ELECTRICITY_GRID_CONNECTIVITY
+      --dsur.[NATIONAL METERING NUMBER] as NATIONAL_METERING_NUMBER,
+      --dsur.[BATTERY MANUFACTURER] as BATTERY_MANUFACTURER,
+      --dsur.[BATTERY MODEL] as BATTERY_MODEL,
+      --dsur.[BATTERY PART OF AGG CONTROL] as BATTERY_PART_OF_AGG_CONTROL,
+      --dsur.[BATTERY SETTINGS CHANGED] as BATTERY_SETTINGS_CHANGED,
+      --dsur.[SGU ELECTRICITY GRID CONNECTIVITY] as SGU_ELECTRICITY_GRID_CONNECTIVITY
 
       
       FROM [RECREG_PROD].CERREGISTRY.SGU sgu
@@ -309,15 +313,17 @@ SRES_Raw_SQL <- paste0("SELECT
       inner join [RECREG_PROD].RETDim.SmallUnitRegistrations dsur
         on sgu.ACCREDITATION_CODE = dsur.[Small Unit Accreditation Code]
       
+      --Fact Small Unit Registrations - fsur
       inner join [RECREG_PROD].RETFact.SmallUnitRegistration fsur
         on	fsur.[Dim_Small_Unit_Registration_ID] = dsur.[Dim_Small_Unit_Registration_ID] 
-                     
- 
+      
+      --Validation Audit Status - vas                     
+      inner join [RECREG_PROD].RETDim.Dim_Validation_Audit_Status vas
+        on	vas.[Dim_Validation_Audit_Status_ID] = fsur.[Dim_Validation_Audit_Status_ID] 
+
 ")
 
-SRES_Raw <- dbGetQuery(conRECREG, SRES_Raw_SQL) %>%
-  mutate(Small_Unit_Installed_Date = ymd(Small_Unit_Installed_Date)) %>%
-  unique()
+RecReg_data_all <- dbGetQuery(conRECREG, RecReg_Raw_SQL) %>% unique()
 
 ## Cleaning 
 ## ---------------------------------------------------
@@ -335,32 +341,28 @@ SRES_Raw <- dbGetQuery(conRECREG, SRES_Raw_SQL) %>%
 
 end_time <- Sys.time()
 run_time <- end_time - start_time
-
+run_time
 
 #######################
 #### Write outputs ####
 #######################
 
-## Plots
-## ------------------------------------------------------
+write_rds(SRES_Raw2, "top100_rows.rds")
 
-#plot_list <- list(plot1, plot2, plot3)
+write_rds(RecReg_data, "RR_2021.rds")
 
-#pdf("my_plots.pdf", onefile = TRUE)
-
-## put your plot_list here
-
-#dev.off()
 
 # Other text files/tables
 ## ------------------------------------------------------
 
 
+write_csv2(RR_2021, "RR_2021_YTD.csv")
+
 ## Log file
 ## ------------------------------------------------------
 
-#log_df <- cbind(global_var1, major_par1, run_time, date()) %>% as.data.frame()
-#write.table(log_df, "log_file.csv", sep = ",", col.names = !file.exists("log_file.csv"), append = TRUE)
+log_df <- cbind(run_time, date()) %>% as.data.frame()
+write.table(log_df, "log_file.csv", sep = ",", col.names = !file.exists("log_file.csv"), append = TRUE)
 
 
 
