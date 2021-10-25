@@ -8,13 +8,13 @@
 # (Output):
 # (How to execute code):
 # 
-# Author: 
+# Author: Rodrigo Lopez
 # rodrigo.lopez@cer.gov.au
 # CER5049
 # Data Science team / Data and Innovation
 # 
 # # Date created: 5/10/2021
-# (Date of last major modification):
+# (Date of last major modification):git
 
 # Copyright (c) Clean Energy Regulator
 
@@ -26,7 +26,7 @@
 
 library(httr) #needed for content()
 library(odbc) # needed for open database connectivity
-library(magrittr )
+library(magrittr)
 library(readr)
 library(stringr) #needed for manipulating strings
 library(dplyr)
@@ -44,7 +44,6 @@ library(odbc) # needed for Odbc
 
 conRECREG <- dbConnect(odbc::odbc(), "RecRegistry", timeout = 10)
 
-
 ###############
 ## Variables ##
 ###############
@@ -53,12 +52,12 @@ options(scipen=999, stringsAsFactors = FALSE)
 
 DevOpsNum <- "Work Item 35079" # Used in log file, and relates to the Feature/PBI number in DevOps
 
-start_time <- Sys.time()
+
 
 # Range for "installation dates" whose records are extracted
-DateStart <- as.Date("2016-01-01") # example 2019-10-21
+DateStart <- as.Date("2021-10-01") # example 2019-10-21
 SQLDateStart <- gsub("-","",DateStart) # Used in SQL script
-DateEnd <- as.Date("2021-10-06") # example 2019-10-21
+DateEnd <- as.Date("2021-10-08") # example 2019-10-21
 SQLDateEnd <- gsub("-","",DateEnd) # Used in SQL script
 
 ###############
@@ -261,7 +260,7 @@ RecReg_Raw_SQL <- paste0("SELECT
       dsur.[SWH Second Hand Flag] as SWH_Second_Hand_Flag,
       dsur.[More than One SWH at Address Flag] as More_than_One_SWH_at_Address_Flag,
       dsur.[RETAILER NAME] as RETAILER_NAME,
-      dsur.[RETAILER ABN] as RETAILER_ABN,
+      dsur.[RETAILER ABN] as RETAILER_ABN
       --dsur.[NATIONAL METERING NUMBER] as NATIONAL_METERING_NUMBER,
       --dsur.[BATTERY MANUFACTURER] as BATTERY_MANUFACTURER,
       --dsur.[BATTERY MODEL] as BATTERY_MODEL,
@@ -324,12 +323,46 @@ RecReg_Raw_SQL <- paste0("SELECT
 
 ")
 
-RecReg_data_all <- dbGetQuery(conRECREG, RecReg_Raw_SQL) %>% unique()
+start_time <- Sys.time()
+
+
+RecReg_data_YTD <- dbGetQuery(conRECREG, RecReg_Raw_SQL) %>% unique() #all columns in the right order; however there is an issue with line breaks
+
+RecReg_data_test2210 <- dbGetQuery(conRECREG, RecReg_Raw_SQL) %>% unique()
 
 ## Cleaning 
 ## ---------------------------------------------------
 
-# Cleaning section is probably the place where one can rehash functions from other projects
+#Found issues in ADDITONAL_SYSTEM_INFORMATION (likely a free text field) that 
+# contains line breaks hence messing up the output CSV file
+
+
+# isolating the issue 
+RecReg_data_YTD %>% filter(Small_Unit_Accreditation_Code == "PVD4268573") %>% 
+  select(ADDITIONAL_SYSTEM_INFORMATION) %>% 
+# substituting the \n pattern with a space 
+  gsub("[\r\n]", " ", .)
+
+# To clean 
+RecReg_data_YTD$ADDITIONAL_SYSTEM_INFORMATION <- RecReg_data_YTD$ADDITIONAL_SYSTEM_INFORMATION %>% gsub("[\r\n]", " ", .) 
+
+sum(grepl('[\n]', RecReg_data_YTD$Small_Unit_Installation_Additional_Address_Information)) # works; sums all occurences
+
+
+# apply(RecReg_data_YTD, 2, sum(grepl('[\n]', RecReg_data_YTD$Small_Unit_Installation_Additional_Address_Information)))
+# 
+clean_data <- as.data.frame(apply(RecReg_data_YTD, 2, function(x) gsub("[\r\n]", " ", x)))
+
+str(clean_data)
+write_csv2(clean_data, "RecReg_data_FYTD_clean.csv")
+
+ # str_replace_all(x, "[\r\n]" , " ") - also  works
+
+# grepl('[^[:punct:]]', val)
+
+
+
+
 
 
 ##############
@@ -357,7 +390,7 @@ run_time
 ## ------------------------------------------------------
 
 
-write_csv2(RR_2021, "RR_2021_YTD.csv")
+write_csv2(RecReg_data_YTD, "RecReg_data_FYTD_check.csv")
 
 ## Log file
 ## ------------------------------------------------------
